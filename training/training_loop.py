@@ -327,10 +327,15 @@ def training_loop(
                 )
                 metric_elapsed = time.time() - metric_start
 
-                if dist.get_rank() == 0 and metric_results is not None:
-                    msg = ', '.join(f'{k}={v:g}' for k, v in metric_results.items())
-                    dist.print0(f'Metrics @ kimg {state.cur_nimg/1e3:.1f}: {msg} '
-                                f'(took {metric_elapsed:.1f}s)')
+                if dist.get_rank() == 0:
+                    metric_failed = metric_results is None
+                    if not metric_failed:
+                        msg = ', '.join(f'{k}={v:g}' for k, v in metric_results.items())
+                        dist.print0(f'Metrics @ kimg {state.cur_nimg/1e3:.1f}: {msg} '
+                                    f'(took {metric_elapsed:.1f}s)')
+                    else:
+                        dist.print0(f'Metrics failed @ kimg {state.cur_nimg/1e3:.1f} '
+                                    f'(took {metric_elapsed:.1f}s); continuing training.')
                     if wandb_run is not None:
                         monitoring.log_to_wandb(
                             wandb,
@@ -338,7 +343,10 @@ def training_loop(
                             cur_nimg=state.cur_nimg,
                             elapsed_time=state.total_elapsed_time,
                             main_eval_metrics=metric_results,
-                            metrics={'metric_eval_sec': metric_elapsed},
+                            metrics={
+                                'metric_eval_sec': metric_elapsed,
+                                'metric_eval_failed': float(metric_failed),
+                            },
                         )
                 # Don't count the eval time as training time on the next tick.
                 prev_status_time = time.time()

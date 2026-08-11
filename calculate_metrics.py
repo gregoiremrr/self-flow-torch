@@ -453,7 +453,11 @@ def calculate_metrics_from_stats(
 
         if stat_type == 'moments':
             m = np.square(stats[metric]['mu'] - ref[metric]['mu']).sum()
-            s, _ = scipy.linalg.sqrtm(np.dot(stats[metric]['sigma'], ref[metric]['sigma']), disp=False)
+            # SciPy <1.16 accepted ``disp=False`` and returned ``(sqrt, err)``;
+            # newer releases removed that argument and always return the
+            # matrix square root directly. Calling without ``disp`` works in
+            # both APIs.
+            s = scipy.linalg.sqrtm(np.dot(stats[metric]['sigma'], ref[metric]['sigma']))
             value = float(np.real(m + np.trace(stats[metric]['sigma'] + ref[metric]['sigma'] - s * 2)))
         elif stat_type == 'features':
             x_feats = stats[metric]['features']

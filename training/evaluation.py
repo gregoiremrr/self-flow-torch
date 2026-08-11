@@ -13,6 +13,7 @@ prefix of features it needs -- so the extra sampling cost is zero when
 ``mind_num_samples <= num_samples``.
 """
 
+import traceback
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -159,26 +160,40 @@ def compute_metrics(
         final_r = r
 
     results = None
+    metric_error = False
     if dist.get_rank() == 0:
-        ref = calculate_metrics.load_stats(ref_path, verbose=True)
-        kw = {}
-        if mind_n_projections is not None:
-            kw['mind_n_projections'] = mind_n_projections
-        if mind_seed is not None:
-            kw['mind_seed'] = mind_seed
-        results = calculate_metrics.calculate_metrics_from_stats(
-            stats=final_r.stats,
-            ref=ref,
-            metrics=metrics,
-            verbose=True,
-            **kw,
-        )
+        try:
+            ref = calculate_metrics.load_stats(ref_path, verbose=True)
+            kw = {}
+            if mind_n_projections is not None:
+                kw['mind_n_projections'] = mind_n_projections
+            if mind_seed is not None:
+                kw['mind_seed'] = mind_seed
+            results = calculate_metrics.calculate_metrics_from_stats(
+                stats=final_r.stats,
+                ref=ref,
+                metrics=metrics,
+                verbose=True,
+                **kw,
+            )
+        except Exception:
+            metric_error = True
+            print('Metric scoring failed; training will continue.')
+            traceback.print_exc()
 
     if dist.get_world_size() > 1:
+        # Rank 0 performs scoring while the other ranks wait here. Broadcast
+        # its status before the barrier so a scoring exception cannot strand
+        # the remaining ranks or terminate the training job.
+        error_flag = torch.tensor(
+            int(metric_error), device=device, dtype=torch.int32,
+        )
+        torch.distributed.broadcast(error_flag, src=0)
+        metric_error = bool(error_flag.item())
         torch.distributed.barrier()
 
     if was_training:
         model.train()
-    return results
+    return None if metric_error else results
 
 #----------------------------------------------------------------------------
