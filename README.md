@@ -221,19 +221,19 @@ The shared optimization configuration is:
 - Uniform training timesteps
 - Adaptive timestep-dependent loss weighting
 
-The vanilla and dual presets train for 500,000 optimizer steps. The Self-Flow
-preset trains for 380,000 steps to account for its additional teacher forward
-pass. These are compute-matched budgets of approximately 24 hours on four A100
-GPUs, including periodic metrics.
+All three presets train for 500,000 optimizer steps. Vanilla and dual take
+approximately 24 hours on four A100 GPUs; Self-Flow takes longer because each
+step includes an additional teacher forward pass.
 
-The vanilla and dual launch intervals are optimizer-step counts:
+All three launchers use the same optimizer-step intervals:
 
 - Status and sample grid: every 1,100 steps, approximately 3 minutes
 - Snapshot, checkpoint, and online metrics: every 45,000 steps, approximately
-  2 hours
+  2 hours for vanilla/dual and longer for Self-Flow
 
-The Self-Flow launcher uses 800 steps for status and 35,000 steps for
-snapshots, checkpoints, and metrics.
+W&B records evaluation metrics against steps, images processed, and training
+time, so the runs can be compared under either equal-data or equal-compute
+views.
 
 Each launch creates a timestamped run directory, for example:
 

@@ -96,7 +96,7 @@ config_presets = {
         self_flow=False,
     ),
     'cifar10-self-flow': dnnlib.EasyDict(
-        **dict(_cifar10_base, total_nsteps=380_000),
+        **_cifar10_base,
         dual_timestep=True,
         self_flow=True,
     ),

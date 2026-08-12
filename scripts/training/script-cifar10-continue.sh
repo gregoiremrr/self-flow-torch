@@ -8,14 +8,9 @@ export NCCL_IB_DISABLE=1
 RUN_DIR=${1:?Usage: script-cifar10-continue.sh RUN_DIR [PRESET]}
 PRESET=${2:-cifar10-vanilla}
 
-# Intervals below are optimizer-step counts, not numbers of seen images.
-if [[ "${PRESET}" == "cifar10-self-flow" ]]; then
-    STATUS_STEPS=800
-    ARTIFACT_STEPS=35000
-else
-    STATUS_STEPS=1100
-    ARTIFACT_STEPS=45000
-fi
+# Intervals below are optimizer-step counts, shared by all presets.
+STATUS_STEPS=1100
+ARTIFACT_STEPS=45000
 
 torchrun --standalone --nproc_per_node=4 train.py \
     --outdir="${RUN_DIR}" \
