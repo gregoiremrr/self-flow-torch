@@ -91,7 +91,9 @@ L = L_flow + 0.8 * L_rep
 ```
 
 Cosine similarity is computed over the hidden dimension and averaged over
-all images and patch tokens.
+all images and patch tokens. The teacher runs under `torch.inference_mode()`
+and exits immediately after layer 8, so it retains no backward activations and
+does not execute layers 9–12 or the image output head.
 
 ## Repository layout
 

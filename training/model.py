@@ -77,7 +77,12 @@ class FlowMatchingModel(torch.nn.Module):
         return_features=False,
         feature_layer=None,
         project_features=False,
+        features_only=False,
     ):
+        if features_only and (not return_features or return_logvar):
+            raise ValueError(
+                'features_only=True requires return_features=True and return_logvar=False'
+            )
         xt = xt.to(torch.float32)
         t = t.to(torch.float32)
         t_scaled = t * self.t_scale
@@ -99,6 +104,7 @@ class FlowMatchingModel(torch.nn.Module):
                     return_features=True,
                     feature_layer=feature_layer,
                     project_features=project_features,
+                    features_only=features_only,
                 )
             net_result = self.net(
                 xt / self.sigma_data,
@@ -107,6 +113,8 @@ class FlowMatchingModel(torch.nn.Module):
                 **feature_kwargs,
             )
 
+        if features_only:
+            return net_result.to(torch.float32)
         if return_features:
             F_x, features = net_result
             features = features.to(torch.float32)

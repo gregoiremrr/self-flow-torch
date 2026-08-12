@@ -123,15 +123,20 @@ class FlowMatchingLoss:
                 teacher_time_map * images
                 + (1.0 - teacher_time_map) * x_noise
             )
-            with torch.no_grad():
-                _, teacher_features = teacher_model(
+            with torch.inference_mode():
+                teacher_features = teacher_model(
                     teacher_xt,
                     teacher_clean_t,
                     labels,
                     return_features=True,
                     feature_layer=self.teacher_layer,
                     project_features=False,
+                    features_only=True,
                 )
+            # Convert the inference tensor into a regular stop-gradient tensor.
+            # This keeps autograd free to save it for the student's cosine
+            # backward pass on all supported PyTorch backends.
+            teacher_features = teacher_features.clone()
             feature_cosine = F.cosine_similarity(
                 student_features.to(torch.float32),
                 teacher_features.to(torch.float32),

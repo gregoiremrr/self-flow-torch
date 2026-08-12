@@ -825,6 +825,7 @@ class SiT(torch.nn.Module):
         return_features=False,
         feature_layer=None,
         project_features=False,
+        features_only=False,
     ):
         x = self.x_embedder(x) + self.pos_embed.to(x.dtype)
         batch, num_tokens, _ = x.shape
@@ -853,6 +854,8 @@ class SiT(torch.nn.Module):
         else:
             c = t_emb
 
+        if features_only and not return_features:
+            raise ValueError('features_only=True requires return_features=True')
         if return_features:
             if feature_layer is None:
                 raise ValueError('feature_layer is required when return_features=True')
@@ -866,6 +869,12 @@ class SiT(torch.nn.Module):
             x = block(x, c, self.rope_cos, self.rope_sin)
             if return_features and layer_idx == int(feature_layer):
                 features = x
+                if features_only:
+                    if project_features:
+                        if self.projector is None:
+                            raise RuntimeError('Self-Flow projector is not enabled')
+                        features = self.projector(features)
+                    return features
 
         output = self._unpatchify(self.final_layer(x, c))
         if not return_features:
