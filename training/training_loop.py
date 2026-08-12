@@ -122,6 +122,11 @@ def training_loop(
         dnnlib.util.construct_class_by_name(model=model, **self_flow_ema_kwargs)
         if self_flow_ema_kwargs is not None else None
     )
+    teacher_ema = self_flow_ema
+    if getattr(loss_fn, 'self_flow', False) and teacher_ema is None:
+        if ema is None:
+            raise RuntimeError('Self-Flow requires an EMA teacher')
+        teacher_ema = ema
 
     # Load previous checkpoint and decide how long to train.
     checkpoint = dist.CheckpointIO(
@@ -400,7 +405,7 @@ def training_loop(
                     model=ddp,
                     images=images,
                     labels=labels.to(device),
-                    teacher_model=self_flow_ema.get() if self_flow_ema is not None else None,
+                    teacher_model=teacher_ema.get() if teacher_ema is not None else None,
                 )
 
                 training_stats.report('Loss/flow_mse', loss_stats['mse'])
@@ -468,8 +473,8 @@ def training_loop(
         state.cur_step += 1
         if ema is not None:
             ema.update(cur_nimg=state.cur_nimg, batch_size=batch_size)
-        if self_flow_ema is not None:
-            self_flow_ema.update()
+        if self_flow_ema is not None and self_flow_ema is not ema:
+            self_flow_ema.update(cur_nimg=state.cur_nimg, batch_size=batch_size)
         cumulative_training_time += time.time() - batch_start_time
 
     if dist.get_rank() == 0 and wandb_run is not None:

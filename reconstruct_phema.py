@@ -17,7 +17,7 @@ import pickle
 import numpy as np
 import torch
 import dnnlib
-import training.phema
+import training.ema
 
 warnings.filterwarnings('ignore', 'You are using `torch.load` with `weights_only=False`')
 
@@ -122,7 +122,7 @@ def reconstruct_phema(
             # Loop over batches.
             r = dnnlib.EasyDict(step_idx=0, num_steps=len(self))
             for out_std_batch in out_std_batches:
-                coefs = training.phema.solve_posthoc_coefficients(in_nimg, in_std, out_nimg, out_std_batch)
+                coefs = training.ema.solve_posthoc_coefficients(in_nimg, in_std, out_nimg, out_std_batch)
                 out = [dnnlib.EasyDict(net=None, nimg=out_nimg, std=std) for std in out_std_batch]
                 r.out = []
 

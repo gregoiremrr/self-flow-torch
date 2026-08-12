@@ -9,8 +9,7 @@ It provides three controlled experiments:
    tokenwise representation alignment.
 
 Training uses four GPUs, BF16, a global batch of 256, a modern SiT backbone,
-online image-quality evaluation, power-function EMA snapshots, and W&B
-monitoring.
+online image-quality evaluation, fixed-decay EMA, and W&B monitoring.
 
 ## Model
 
@@ -41,14 +40,15 @@ v_target = x_data - x_noise
 ```
 
 The network can directly predict either the clean image `x` or velocity `v`.
-The CIFAR-10 presets use clean-image prediction with a velocity-space loss:
+The CIFAR-10 presets use direct velocity prediction and velocity-space loss:
 
 ```text
-v_pred   = (x_pred - z_t) / max(1 - t, 0.05)
-v_target = (x_data - z_t) / max(1 - t, 0.05)
+v_pred   = network(z_t, t)
+v_target = x_data - x_noise
 ```
 
-The denominator clipping coefficient is 0.05.
+Clean-image prediction remains available through `--pred=x`. In that mode,
+both prediction and target use `max(1 - t, 0.05)` as their denominator.
 
 ## Dual-Timestep Scheduling
 
@@ -109,7 +109,7 @@ all images and patch tokens.
 │   ├── networks.py            SiT and supporting network layers
 │   ├── encoders.py            Pixel and VAE encoders
 │   ├── schedulers.py          Learning-rate schedules
-│   ├── phema.py               Evaluation EMA and Self-Flow teacher EMA
+│   ├── ema.py                 Fixed, traditional, and power-function EMA
 │   ├── monitoring.py          W&B logging
 │   └── dataset.py             Folder and ZIP dataset reader
 ├── scripts/
@@ -210,6 +210,17 @@ bash scripts/training/script-cifar10-self-flow.sh
 All launchers use four GPUs and a global batch of 256, giving 64 images per
 GPU with one forward/backward round and no gradient accumulation.
 
+The shared optimization configuration is:
+
+- AdamW with betas `(0.9, 0.999)`, epsilon `1e-8`, and zero weight decay
+- Dropout `0.13`
+- Gradient clipping at norm `1.0`
+- Linear warmup from 0 to `2e-4` over 10,000 steps
+- Cosine learning-rate decay from `2e-4` to 0 over the remaining steps
+- Fixed EMA decay `0.9999`
+- Uniform training timesteps
+- Adaptive timestep-dependent loss weighting
+
 The vanilla and dual presets train for 500,000 optimizer steps. On four A100
 GPUs, the measured vanilla runtime is approximately 24 hours, including
 periodic metrics. Self-Flow performs an additional teacher forward pass and
@@ -238,13 +249,13 @@ A run directory contains:
 - `log.txt`: console log
 - `stats.jsonl`: machine-readable training statistics
 - `training-state-*.pt`: resumable model, optimizer, EMA, and step state
-- `model-snapshot-*-0.050.pkl`
-- `model-snapshot-*-0.100.pkl`
-- `model-snapshot-*-0.200.pkl`
+- `model-snapshot-*.pkl`: fixed-decay EMA model
 
-The three snapshot suffixes identify power-function EMA profiles. Online
-sampling and metrics use the first profile. The final training step always
-writes a snapshot and a training-state checkpoint.
+The same fixed-decay EMA is used for sample grids, online metrics, snapshots,
+and the Self-Flow teacher. `training/ema.py` also provides
+`TraditionalEMA` and `PowerFunctionEMA` for alternative experiments and
+post-hoc EMA reconstruction. The final training step always writes a snapshot
+and a training-state checkpoint.
 
 Resume a run with:
 
@@ -292,7 +303,7 @@ torchrun --standalone --nproc_per_node=4 generate_images.py \
     --outdir=out/cifar10-eval \
     --subdirs \
     --seeds=0-49999 \
-    --model=training-runs/EXPERIMENT/RUN/model-snapshot-STEP-0.050.pkl \
+    --model=training-runs/EXPERIMENT/RUN/model-snapshot-STEP.pkl \
     --sampler-fn=training.model.sample \
     --n-sampling-steps=50 \
     --guidance=1.0 \

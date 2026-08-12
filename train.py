@@ -29,7 +29,6 @@ dataset_presets = {
     'cifar10': dnnlib.EasyDict(
         sigma_data=0.5,
         eps=0.05,
-        phema_stds=[0.050, 0.100, 0.200],
         net_kwargs=dnnlib.EasyDict(
             class_name='training.networks.SiT',
             patch_size=2,
@@ -45,7 +44,7 @@ dataset_presets = {
             guidance=1.0,
         ),
         lr_scheduler_kwargs=dnnlib.EasyDict(
-            func_name='training.schedulers.warmup_constant_lr',
+            func_name='training.schedulers.cosine_lr',
         ),
     ),
 }
@@ -60,13 +59,13 @@ _cifar10_base = dict(
     cond=True,
     total_nsteps=500_000,
     batch_size=256,                 # 64 images/GPU on the requested 4 GPUs.
-    pred='x',
+    pred='v',
     precision='bf16',
     t_scale=1000,
     p_uncond_labels=0.10,
-    dropout=0.0,
-    lr=1e-4,
-    warmup_nsteps=1_000,
+    dropout=0.13,
+    lr=2e-4,
+    warmup_nsteps=10_000,
     max_clip_norm=1.0,
     time_distribution='uniform',   # Self-Flow ImageNet recipe; same p(t) in all runs.
     time_mu=-0.8,                  # Used only when --time-distribution=logit_normal.
@@ -78,8 +77,8 @@ _cifar10_base = dict(
     teacher_decay=0.9999,
     optimizer_kwargs=dnnlib.EasyDict(
         class_name='torch.optim.AdamW',
-        lr=1e-4,
-        betas=(0.9, 0.95),
+        lr=2e-4,
+        betas=(0.9, 0.999),
         eps=1e-8,
         weight_decay=0.0,
     ),
@@ -180,14 +179,13 @@ def setup_training_config(preset='cifar10-vanilla', **opts):
         ),
         precision=opts.precision,
     )
-    c.ema_kwargs = dict(class_name='training.phema.PowerFunctionEMA', stds=list(opts.phema_stds))
-    c.self_flow_ema_kwargs = (
-        dnnlib.EasyDict(
-            class_name='training.phema.FixedEMA',
-            decay=opts.teacher_decay,
-        )
-        if opts.self_flow else None
+    # A single fixed-decay EMA is used for evaluation and, in Self-Flow runs,
+    # as the stop-gradient teacher.
+    c.ema_kwargs = dnnlib.EasyDict(
+        class_name='training.ema.FixedEMA',
+        decay=opts.teacher_decay,
     )
+    c.self_flow_ema_kwargs = None
     c.loss_kwargs = dnnlib.EasyDict(
         class_name='training.loss.FlowMatchingLoss',
         p_uncond=opts.p_uncond_labels,
