@@ -6,16 +6,16 @@ export NCCL_SOCKET_IFNAME=lo
 export NCCL_IB_DISABLE=1
 
 # Dual-Timestep Scheduling only: two iid patch noise levels, no feature loss.
-# Intervals are optimizer steps: ~3 min / ~3 h / ~9 h on 4xA100.
+# Intervals are optimizer steps: ~3 min status / ~2 h artifacts on 4xA100.
 torchrun --standalone --nproc_per_node=4 train.py \
     --outdir=training-runs/cifar10-dual \
     --data=../datasets/cifar10.zip \
     --preset=cifar10-dual \
     --precision=bf16 \
     --status=1100 \
-    --snapshot=65000 \
-    --checkpoint=195000 \
-    --metrics=65000 \
+    --snapshot=45000 \
+    --checkpoint=45000 \
+    --metrics=45000 \
     --metric-names=fid,fd_dinov2,mind,mind_dinov2 \
     --metric-num-samples=20000 \
     --mind-num-samples=5000 \

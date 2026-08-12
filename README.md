@@ -221,19 +221,19 @@ The shared optimization configuration is:
 - Uniform training timesteps
 - Adaptive timestep-dependent loss weighting
 
-The vanilla and dual presets train for 500,000 optimizer steps. On four A100
-GPUs, the measured vanilla runtime is approximately 24 hours, including
-periodic metrics. Self-Flow performs an additional teacher forward pass and
-therefore takes longer for the same number of optimizer steps.
+The vanilla and dual presets train for 500,000 optimizer steps. The Self-Flow
+preset trains for 380,000 steps to account for its additional teacher forward
+pass. These are compute-matched budgets of approximately 24 hours on four A100
+GPUs, including periodic metrics.
 
 The vanilla and dual launch intervals are optimizer-step counts:
 
 - Status and sample grid: every 1,100 steps, approximately 3 minutes
-- Snapshot and online metrics: every 65,000 steps, approximately 3 hours
-- Training-state checkpoint: every 195,000 steps, approximately 9 hours
+- Snapshot, checkpoint, and online metrics: every 45,000 steps, approximately
+  2 hours
 
-The Self-Flow launcher uses 800, 50,000, and 150,000 steps respectively to
-account for the teacher forward pass.
+The Self-Flow launcher uses 800 steps for status and 35,000 steps for
+snapshots, checkpoints, and metrics.
 
 Each launch creates a timestamped run directory, for example:
 

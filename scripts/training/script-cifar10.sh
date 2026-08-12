@@ -11,16 +11,16 @@ export NCCL_SOCKET_IFNAME=lo
 export NCCL_IB_DISABLE=1
 
 # Optimizer-step intervals calibrated from the 4xA100 vanilla run:
-# 1100 steps ~3 min, 65000 ~3 h, and 195000 ~9 h.
+# 1100 steps ~3 min; 45000 steps ~2 h.
 torchrun --standalone --nproc_per_node=4 train.py \
     --outdir=training-runs/cifar10-vanilla \
     --data=../datasets/cifar10.zip \
     --preset=cifar10-vanilla \
     --precision=bf16 \
     --status=1100 \
-    --snapshot=65000 \
-    --checkpoint=65000 \
-    --metrics=65000 \
+    --snapshot=45000 \
+    --checkpoint=45000 \
+    --metrics=45000 \
     --metric-names=fid,fd_dinov2,mind,mind_dinov2 \
     --metric-num-samples=20000 \
     --mind-num-samples=5000 \
