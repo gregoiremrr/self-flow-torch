@@ -32,23 +32,41 @@ The Self-Flow parameter increase comes from a trainable
 
 ## Flow objective
 
-The probability path runs from Gaussian noise at `t=0` to data at `t=1`:
+The network directly predicts velocity. Both supported probability paths use
+normalized time with Gaussian noise at `t=0` and data at `t=1`.
+
+Linear:
 
 ```text
 z_t = t * x_data + (1 - t) * x_noise
 v_target = x_data - x_noise
 ```
 
-The network can directly predict either the clean image `x` or velocity `v`.
-The CIFAR-10 presets use direct velocity prediction and velocity-space loss:
+Trigonometric:
 
 ```text
-v_pred   = network(z_t, t)
-v_target = x_data - x_noise
+angle = pi * t / 2
+z_t = sin(angle) * x_data + cos(angle) * x_noise
+v_target = (pi / 2) * (
+    cos(angle) * x_data - sin(angle) * x_noise
+)
 ```
 
-Clean-image prediction remains available through `--pred=x`. In that mode,
-both prediction and target use `max(1 - t, 0.05)` as their denominator.
+Select the path with `--interpolant=linear` or `--interpolant=trig`. The
+default is linear. Uniform timestep sampling works for either path. TrigFlow's
+EDM proposal is also available:
+
+```bash
+--interpolant=trig \
+--time-distribution=edm_lognormal \
+--time-mu=-1.2 \
+--time-sigma=1.2
+```
+
+For the EDM proposal, the implementation samples `log(sigma)` from the
+configured normal distribution, maps it through
+`theta=atan(sigma/sigma_data)`, and converts the angle to the normalized
+noise-at-zero time convention.
 
 ## Dual-Timestep Scheduling
 
@@ -208,6 +226,41 @@ bash scripts/training/script-cifar10-dual.sh
 # Full Self-Flow
 bash scripts/training/script-cifar10-self-flow.sh
 ```
+
+Every launcher forwards additional command-line options. For example:
+
+```bash
+bash scripts/training/script-cifar10-self-flow.sh \
+    --interpolant=trig \
+    --time-distribution=edm_lognormal \
+    --time-mu=-1.2 \
+    --time-sigma=1.2
+```
+
+The six dedicated TrigFlow experiments are:
+
+```bash
+# TrigFlow + uniform timesteps
+bash scripts/training/script-cifar10-trig-uniform.sh
+
+# TrigFlow + uniform timesteps + Dual-Timestep Scheduling
+bash scripts/training/script-cifar10-trig-uniform-dual.sh
+
+# TrigFlow + uniform timesteps + full Self-Flow
+bash scripts/training/script-cifar10-trig-uniform-self-flow.sh
+
+# TrigFlow + EDM log-normal timesteps
+bash scripts/training/script-cifar10-trig-lognormal.sh
+
+# TrigFlow + EDM log-normal timesteps + Dual-Timestep Scheduling
+bash scripts/training/script-cifar10-trig-lognormal-dual.sh
+
+# TrigFlow + EDM log-normal timesteps + full Self-Flow
+bash scripts/training/script-cifar10-trig-lognormal-self-flow.sh
+```
+
+The log-normal presets use `P_mean=-1.2`, `P_std=1.2`, and
+`sigma_data=0.5`.
 
 All launchers use four GPUs and a global batch of 256, giving 64 images per
 GPU with one forward/backward round and no gradient accumulation.

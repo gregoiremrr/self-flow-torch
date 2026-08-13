@@ -8,22 +8,21 @@ from training.networks import FourierEmbedding, Linear
 class FlowMatchingModel(torch.nn.Module):
     def __init__(
         self,
-        pred,
+        interpolant,
         img_resolution,
         img_channels,
         sigma_data,
         label_dim=0,
         t_scale=1000,
-        eps=0.05,
         precision='fp32',
         net_kwargs=None,
         logvar_channels=128,
     ):
-        assert pred in ["x", "v"]
+        assert interpolant in ['linear', 'trig']
         assert precision in ['fp32', 'fp16', 'bf16']
         super().__init__()
+        self.interpolant = interpolant
         self.sigma_data = sigma_data
-        self.eps = eps
         self.precision = precision
         self.img_resolution = img_resolution
         self.img_channels = img_channels
@@ -41,8 +40,6 @@ class FlowMatchingModel(torch.nn.Module):
             label_dim=label_dim,
             **net_kwargs,
         )
-        self.pred = pred
-
         # EDM2-style adaptive loss weighting (Karras et al., 2024).
         self.logvar_fourier = FourierEmbedding(num_channels=logvar_channels)
         self.logvar_linear = Linear(in_features=logvar_channels, out_features=1, init_mode='kaiming_normal')
@@ -65,6 +62,22 @@ class FlowMatchingModel(torch.nn.Module):
             .repeat_interleave(patch_size, dim=1)
             .repeat_interleave(patch_size, dim=2)
             .unsqueeze(1)
+        )
+
+    def interpolate(self, data, noise, t):
+        """Construct z_t with noise at t=0 and data at t=1."""
+        if self.interpolant == 'linear':
+            return t * data + (1.0 - t) * noise
+        angle = t * (torch.pi / 2)
+        return torch.sin(angle) * data + torch.cos(angle) * noise
+
+    def velocity_target(self, data, noise, t):
+        """Return dz_t/dt for normalized t in [0, 1]."""
+        if self.interpolant == 'linear':
+            return data - noise
+        angle = t * (torch.pi / 2)
+        return (torch.pi / 2) * (
+            torch.cos(angle) * data - torch.sin(angle) * noise
         )
 
     def forward(
@@ -122,15 +135,8 @@ class FlowMatchingModel(torch.nn.Module):
             F_x = net_result
             features = None
 
-        # Network outputs are in sigma_data-normalized coordinates.
-        pred = self.sigma_data * F_x.to(torch.float32)
-        if self.pred == "v":
-            v_pred = pred
-        else:
-            # z_t = t*x + (1-t)*noise.  JiT trains x-prediction in velocity
-            # space and clips this denominator to 0.05 near the data endpoint.
-            denom = (1.0 - self._time_to_image(t)).clamp_min(self.eps)
-            v_pred = (pred - xt) / denom
+        # The network directly predicts dz_t/dt in data coordinates.
+        v_pred = self.sigma_data * F_x.to(torch.float32)
 
         outputs = [v_pred]
         if return_logvar:

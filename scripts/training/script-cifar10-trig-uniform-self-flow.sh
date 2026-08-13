@@ -5,12 +5,10 @@ export NCCL_NET=Socket
 export NCCL_SOCKET_IFNAME=lo
 export NCCL_IB_DISABLE=1
 
-# Dual-Timestep Scheduling only: two iid patch noise levels, no feature loss.
-# Intervals are optimizer steps: ~3 min status / ~2 h artifacts on 4xA100.
 torchrun --standalone --nproc_per_node=4 train.py \
-    --outdir=training-runs/cifar10-dual \
+    --outdir=training-runs/cifar10-trig-uniform-self-flow \
     --data=../datasets/cifar10.zip \
-    --preset=cifar10-dual \
+    --preset=cifar10-trig-uniform-self-flow \
     --precision=bf16 \
     --status=1100 \
     --snapshot=45000 \

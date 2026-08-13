@@ -25,4 +25,5 @@ torchrun --standalone --nproc_per_node=4 train.py \
     --metric-num-samples=20000 \
     --mind-num-samples=5000 \
     --metric-ref=../fid-refs/cifar10.pkl \
-    --metric-batch-size=64
+    --metric-batch-size=64 \
+    "$@"

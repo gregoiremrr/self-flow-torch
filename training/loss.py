@@ -23,7 +23,7 @@ class FlowMatchingLoss:
         Args:
             p_uncond: The probability of dropping the class label to train the unconditional branch.
         """
-        if time_distribution not in ['uniform', 'logit_normal']:
+        if time_distribution not in ['uniform', 'logit_normal', 'edm_lognormal']:
             raise ValueError(f'Unknown time distribution: {time_distribution}')
         if not 0 <= mask_ratio <= 0.5:
             raise ValueError('Self-Flow mask_ratio must be in [0, 0.5]')
@@ -40,14 +40,21 @@ class FlowMatchingLoss:
         self.student_layer = student_layer
         self.teacher_layer = teacher_layer
 
-    def _sample_t(self, batch_size, device):
+    def _sample_t(self, batch_size, device, sigma_data):
         if self.time_distribution == 'uniform':
             return torch.rand(batch_size, device=device)
-        logits = (
+        normal = (
             torch.randn(batch_size, device=device) * self.time_sigma
             + self.time_mu
         )
-        return torch.sigmoid(logits)
+        if self.time_distribution == 'logit_normal':
+            return torch.sigmoid(normal)
+
+        # EDM/TrigFlow proposal: log(sigma) ~ N(mu, sigma^2),
+        # theta = atan(sigma / sigma_data). Convert the data-at-zero angle
+        # into this repository's normalized noise-at-zero time convention.
+        theta = torch.atan(normal.exp() / sigma_data)
+        return 1.0 - theta * (2.0 / torch.pi)
 
     def __call__(self, model, images, labels=None, teacher_model=None):
 
@@ -58,7 +65,7 @@ class FlowMatchingLoss:
         # We assume that the model is wrapped in DDP.
         module = model.module
         batch_size = images.shape[0]
-        t = self._sample_t(batch_size, images.device)
+        t = self._sample_t(batch_size, images.device, module.sigma_data)
         secondary_t = None
         token_mask = None
 
@@ -66,7 +73,9 @@ class FlowMatchingLoss:
             if not getattr(module.net, 'supports_per_token_t', False):
                 raise RuntimeError('Dual-timestep training requires a per-token timestep network')
             num_tokens = module.net.x_embedder.num_patches
-            secondary_t = self._sample_t(batch_size, images.device)
+            secondary_t = self._sample_t(
+                batch_size, images.device, module.sigma_data,
+            )
             # Do not sort t and s.  This is intentional: it preserves p(t) as
             # the marginal distribution of every token (Self-Flow Eq. 4).
             token_mask = (
@@ -81,15 +90,8 @@ class FlowMatchingLoss:
 
         time_map = module._time_to_image(model_t)
         x_noise = torch.randn_like(images) * module.sigma_data
-        xt = time_map * images + (1.0 - time_map) * x_noise
-
-        if module.pred == 'x':
-            # Match JiT exactly: both target and prediction use the clipped
-            # denominator when the clean image is the network output.
-            denom = (1.0 - time_map).clamp_min(module.eps)
-            v_target = (images - xt) / denom
-        else:
-            v_target = images - x_noise
+        xt = module.interpolate(images, x_noise, time_map)
+        v_target = module.velocity_target(images, x_noise, time_map)
 
         if self.self_flow:
             if teacher_model is None:
@@ -119,9 +121,8 @@ class FlowMatchingLoss:
             # Self-Flow paper, so max(t, s) is the cleaner teacher timestep.
             teacher_clean_t = torch.maximum(t, secondary_t)
             teacher_time_map = module._time_to_image(teacher_clean_t)
-            teacher_xt = (
-                teacher_time_map * images
-                + (1.0 - teacher_time_map) * x_noise
+            teacher_xt = module.interpolate(
+                images, x_noise, teacher_time_map,
             )
             with torch.inference_mode():
                 teacher_features = teacher_model(

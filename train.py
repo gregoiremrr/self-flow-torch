@@ -28,7 +28,6 @@ def _wait_for_path(path, timeout=300, interval=0.1):
 dataset_presets = {
     'cifar10': dnnlib.EasyDict(
         sigma_data=0.5,
-        eps=0.05,
         net_kwargs=dnnlib.EasyDict(
             class_name='training.networks.SiT',
             patch_size=2,
@@ -50,16 +49,16 @@ dataset_presets = {
 }
 
 #----------------------------------------------------------------------------
-# Configuration presets.  All three experiments share the same backbone,
-# optimizer, timestep marginal, and batch size; only the two Self-Flow
-# components differ.  This makes the requested ablation directly comparable.
+# Configuration presets. All experiments share the same backbone, optimizer,
+# batch size, and training budget. The presets isolate probability path,
+# timestep marginal, Dual-Timestep Scheduling, and representation alignment.
 
 _cifar10_base = dict(
     dataset='cifar10',
     cond=True,
     total_nsteps=500_000,
     batch_size=256,                 # 64 images/GPU on the requested 4 GPUs.
-    pred='v',
+    interpolant='linear',
     precision='bf16',
     t_scale=1000,
     p_uncond_labels=0.10,
@@ -68,7 +67,7 @@ _cifar10_base = dict(
     warmup_nsteps=10_000,
     max_clip_norm=1.0,
     time_distribution='uniform',   # Self-Flow ImageNet recipe; same p(t) in all runs.
-    time_mu=-0.8,                  # Used only when --time-distribution=logit_normal.
+    time_mu=-0.8,                  # Mean for logit-normal t or EDM log(sigma).
     time_sigma=0.8,
     mask_ratio=0.25,
     self_flow_weight=0.8,
@@ -97,6 +96,66 @@ config_presets = {
     ),
     'cifar10-self-flow': dnnlib.EasyDict(
         **_cifar10_base,
+        dual_timestep=True,
+        self_flow=True,
+    ),
+    'cifar10-trig-uniform': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='uniform',
+        ),
+        dual_timestep=False,
+        self_flow=False,
+    ),
+    'cifar10-trig-uniform-dual': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='uniform',
+        ),
+        dual_timestep=True,
+        self_flow=False,
+    ),
+    'cifar10-trig-uniform-self-flow': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='uniform',
+        ),
+        dual_timestep=True,
+        self_flow=True,
+    ),
+    'cifar10-trig-lognormal': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='edm_lognormal',
+            time_mu=-1.2,
+            time_sigma=1.2,
+        ),
+        dual_timestep=False,
+        self_flow=False,
+    ),
+    'cifar10-trig-lognormal-dual': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='edm_lognormal',
+            time_mu=-1.2,
+            time_sigma=1.2,
+        ),
+        dual_timestep=True,
+        self_flow=False,
+    ),
+    'cifar10-trig-lognormal-self-flow': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='trig',
+            time_distribution='edm_lognormal',
+            time_mu=-1.2,
+            time_sigma=1.2,
+        ),
         dual_timestep=True,
         self_flow=True,
     ),
@@ -168,10 +227,9 @@ def setup_training_config(preset='cifar10-vanilla', **opts):
     c.total_nimg = opts.total_nsteps * opts.batch_size
     c.model_kwargs = dnnlib.EasyDict(
         class_name='training.model.FlowMatchingModel',
-        pred=opts.pred,
+        interpolant=opts.interpolant,
         sigma_data=opts.sigma_data,
         t_scale=opts.t_scale,
-        eps=opts.eps,
         net_kwargs=dnnlib.EasyDict(
             **opts.net_kwargs,
             dropout=opts.dropout,
@@ -256,6 +314,7 @@ def print_training_config(run_dir, pretrained_pkl, c):
     dist.print0(f'Class-conditional:       {c.dataset_kwargs.use_labels}')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
+    dist.print0(f'Interpolant:             {c.model_kwargs.interpolant}')
     dist.print0(f'Precision:               {c.model_kwargs.precision}')
     dist.print0()
 
@@ -311,16 +370,16 @@ def parse_count(s):
 @click.option('--cond',             help='Train class-conditional model', metavar='BOOL',       type=bool, default=None)
 @click.option('--total_nsteps',     help='Training duration in optimizer steps', metavar='STEPS', type=parse_count, default=None)
 @click.option('--batch-size',       help='Total batch size', metavar='NIMG',                    type=parse_count, default=None)
-@click.option('--pred',             help='Quantity predicted by the network', metavar='x/v',    type=click.Choice(['x', 'v']), default=None)
+@click.option('--interpolant',      help='Probability path', metavar='PATH',                    type=click.Choice(['linear', 'trig']), default=None)
 @click.option('--precision',        help='Transformer compute precision', metavar='DTYPE',       type=click.Choice(['fp32', 'fp16', 'bf16']), default=None)
 @click.option('--dropout',          help='Dropout probability', metavar='FLOAT',                type=click.FloatRange(min=0, max=1), default=None)
 @click.option('--t-scale',          help='Scaling for the t embedding', metavar='FLOAT',        type=click.FloatRange(min=0, min_open=True), default=None)
 @click.option('--lr',               help='Learning rate max. (alpha_ref)', metavar='FLOAT',     type=click.FloatRange(min=0, min_open=True), default=None)
 @click.option('--max_clip_norm',    help='Max gradient norm for clipping (0 disables clipping but still logs grad norm)', metavar='FLOAT', type=click.FloatRange(min=0), default=None)
 @click.option('--p-uncond-labels',  help='Prob. of dropping labels for CFG training', metavar='FLOAT', type=click.FloatRange(min=0, max=1), default=None)
-@click.option('--time-distribution', help='Training timestep marginal p(t)', metavar='DIST',     type=click.Choice(['uniform', 'logit_normal']), default=None)
-@click.option('--time-mu',          help='Logit-normal timestep mean', metavar='FLOAT',          type=float, default=None)
-@click.option('--time-sigma',       help='Logit-normal timestep std.', metavar='FLOAT',          type=click.FloatRange(min=0, min_open=True), default=None)
+@click.option('--time-distribution', help='Training timestep marginal p(t)', metavar='DIST',     type=click.Choice(['uniform', 'logit_normal', 'edm_lognormal']), default=None)
+@click.option('--time-mu',          help='Normal mean for non-uniform timestep sampling', metavar='FLOAT', type=float, default=None)
+@click.option('--time-sigma',       help='Normal std. for non-uniform timestep sampling', metavar='FLOAT', type=click.FloatRange(min=0, min_open=True), default=None)
 @click.option('--dual-timestep/--single-timestep', help='Noise patches at two iid timesteps',   default=None)
 @click.option('--self-flow/--no-self-flow', help='Add EMA-teacher feature alignment',            default=None)
 @click.option('--mask-ratio',       help='Fraction of tokens assigned the second timestep', metavar='FLOAT', type=click.FloatRange(min=0, max=0.5), default=None)
