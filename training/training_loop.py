@@ -146,7 +146,7 @@ def training_loop(
     wandb_run = None
     if dist.get_rank() == 0:
         if not state.get('wandb_run_id', None):
-            state.wandb_run_id = wandb.util.generate_id()
+            state.wandb_run_id = wandb.sdk.lib.runid.generate_id()
         wandb_run = wandb.init(
             project='flow-matching',
             name=os.path.basename(run_dir),
