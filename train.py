@@ -99,6 +99,28 @@ config_presets = {
         dual_timestep=True,
         self_flow=True,
     ),
+    'cifar10-linear-lognormal': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='linear',
+            time_distribution='logit_normal',
+            time_mu=-0.8,
+            time_sigma=0.8,
+        ),
+        dual_timestep=False,
+        self_flow=False,
+    ),
+    'cifar10-linear-lognormal-self-flow': dnnlib.EasyDict(
+        **dict(
+            _cifar10_base,
+            interpolant='linear',
+            time_distribution='logit_normal',
+            time_mu=-0.8,
+            time_sigma=0.8,
+        ),
+        dual_timestep=True,
+        self_flow=True,
+    ),
     'cifar10-trig-uniform': dnnlib.EasyDict(
         **dict(
             _cifar10_base,
